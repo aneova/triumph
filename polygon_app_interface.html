@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Polygon Manager</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+    header {
+      padding: 12px;
+      background: #333;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    button {
+      margin-right: 10px;
+      padding: 6px 12px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .zone {
+      flex: 1;
+      border: 2px dashed #ccc;
+      margin: 6px;
+      position: relative;
+      overflow: hidden;
+    }
+    #buffer-zone {
+      background-color: #f0f0f0;
+    }
+    #work-zone {
+      background-color: #fff;
+    }
+    .grid {
+      stroke: #ddd;
+      stroke-width: 0.5;
+    }
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+    polygon {
+      cursor: move;
+      stroke: black;
+      stroke-width: 1;
+      fill-opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <button onclick="createPolygons()">Создать</button>
+      <button onclick="savePolygons()">Сохранить</button>
+      <button onclick="clearPolygons()">Сбросить</button>
+    </div>
+    <h1>Менеджер полигонов</h1>
+  </header>
+
+  <div class="container">
+    <div id="buffer-zone" class="zone">
+      <svg id="buffer-svg"></svg>
+    </div>
+    <div id="work-zone" class="zone">
+      <svg id="work-svg"></svg>
+    </div>
+  </div>
+
+  <script>
+    const bufferSvg = document.getElementById('buffer-svg')
+    const workSvg = document.getElementById('work-svg')
+    let polygons = []
+    let selectedPolygon = null
+    let offsetX = 0
+    let offsetY = 0
+
+    function randomPolygonPoints(cx, cy, radius, sides = 5) {
+      const points = []
+      const angleStep = (2 * Math.PI) / sides
+      for (let i = 0; i < sides; i++) {
+        const angle = i * angleStep
+        const x = cx + radius * Math.cos(angle)
+        const y = cy + radius * Math.sin(angle)
+        points.push(`${x},${y}`)
+      }
+      return points.join(' ')
+    }
+
+    function createPolygons() {
+      bufferSvg.innerHTML = ''
+      polygons = []
+      const count = Math.floor(Math.random() * 16) + 5
+      for (let i = 0; i < count; i++) {
+        const cx = Math.random() * 200 + 50
+        const cy = Math.random() * 100 + 50
+        const sides = Math.floor(Math.random() * 4) + 3
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon')
+        poly.setAttribute('points', randomPolygonPoints(cx, cy, 30, sides))
+        poly.setAttribute('fill', getRandomColor())
+        poly.setAttribute('data-id', `poly-${Date.now()}-${i}`)
+        poly.addEventListener('mousedown', startDrag)
+        bufferSvg.appendChild(poly)
+        polygons.push({ id: poly.dataset.id, points: poly.getAttribute('points'), fill: poly.getAttribute('fill'), zone: 'buffer' })
+      }
+    }
+
+    function getRandomColor() {
+      const letters = '0123456789ABCDEF'
+      let color = '#'
+      for (let i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)]
+      }
+      return color
+    }
+
+    function startDrag(e) {
+      selectedPolygon = e.target
+      offsetX = e.clientX
+      offsetY = e.clientY
+      document.addEventListener('mousemove', drag)
+      document.addEventListener('mouseup', endDrag)
+    }
+
+    function drag(e) {
+      if (!selectedPolygon) return
+      const dx = e.clientX - offsetX
+      const dy = e.clientY - offsetY
+      offsetX = e.clientX
+      offsetY = e.clientY
+
+      const points = selectedPolygon.getAttribute('points').split(' ').map(p => {
+        const [px, py] = p.split(',').map(Number)
+        return `${px + dx},${py + dy}`
+      })
+
+      selectedPolygon.setAttribute('points', points.join(' '))
+
+      const id = selectedPolygon.dataset.id
+      const polyData = polygons.find(p => p.id === id)
+      if (polyData) polyData.points = selectedPolygon.getAttribute('points')
+    }
+
+    function endDrag(e) {
+      if (!selectedPolygon) return
+
+      // Определим над каким SVG сейчас находится курсор
+      const workRect = workSvg.getBoundingClientRect()
+      const bufferRect = bufferSvg.getBoundingClientRect()
+      const id = selectedPolygon.dataset.id
+      const polyData = polygons.find(p => p.id === id)
+
+      if (e.clientY > workRect.top && e.clientY < workRect.bottom) {
+        if (!workSvg.contains(selectedPolygon)) {
+          workSvg.appendChild(selectedPolygon)
+          if (polyData) polyData.zone = 'work'
+        }
+      } else if (e.clientY > bufferRect.top && e.clientY < bufferRect.bottom) {
+        if (!bufferSvg.contains(selectedPolygon)) {
+          bufferSvg.appendChild(selectedPolygon)
+          if (polyData) polyData.zone = 'buffer'
+        }
+      }
+
+      selectedPolygon = null
+      document.removeEventListener('mousemove', drag)
+      document.removeEventListener('mouseup', endDrag)
+    }
+
+    function savePolygons() {
+      localStorage.setItem('polygons', JSON.stringify(polygons))
+      alert('Сохранено!')
+    }
+
+    function clearPolygons() {
+      localStorage.removeItem('polygons')
+      polygons = []
+      bufferSvg.innerHTML = ''
+      workSvg.innerHTML = ''
+      drawGrid(workSvg)
+    }
+
+    function drawGrid(svg, step = 50) {
+      const width = svg.clientWidth
+      const height = svg.clientHeight
+      for (let x = 0; x < width; x += step) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+        line.setAttribute('x1', x)
+        line.setAttribute('y1', 0)
+        line.setAttribute('x2', x)
+        line.setAttribute('y2', height)
+        line.setAttribute('class', 'grid')
+        svg.appendChild(line)
+      }
+      for (let y = 0; y < height; y += step) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+        line.setAttribute('x1', 0)
+        line.setAttribute('y1', y)
+        line.setAttribute('x2', width)
+        line.setAttribute('y2', y)
+        line.setAttribute('class', 'grid')
+        svg.appendChild(line)
+      }
+    }
+
+    function restorePolygons() {
+      const data = localStorage.getItem('polygons')
+      if (!data) return
+      polygons = JSON.parse(data)
+      bufferSvg.innerHTML = ''
+      workSvg.innerHTML = ''
+      drawGrid(workSvg)
+      polygons.forEach(p => {
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon')
+        poly.setAttribute('points', p.points)
+        poly.setAttribute('fill', p.fill)
+        poly.setAttribute('data-id', p.id)
+        poly.addEventListener('mousedown', startDrag)
+        const svg = p.zone === 'buffer' ? bufferSvg : workSvg
+        svg.appendChild(poly)
+      })
+    }
+
+    window.onload = () => {
+      drawGrid(workSvg)
+      restorePolygons()
+    }
+  </script>
+</body>
+</html>
